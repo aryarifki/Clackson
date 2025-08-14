@@ -1,0 +1,11 @@
+node_modules
+.next
+.env*
+!.env.example
+dist
+.DS_Store
+*.log
+coverage
+pnpm-lock.yaml
+vercel
+
