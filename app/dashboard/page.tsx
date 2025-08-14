@@ -1,18 +1,5 @@
+
 import Link from 'next/link';
-import { listChatsAction } from '@/app/actions/saveChat';
-import { getCurrentUser } from '@/lib/auth';
-
-export const dynamic = 'force-dynamic';
-
-export default async function DashboardPage() {
-  const user = await getCurrentUser();
-  type ChatListItem = { id: number; title: string | null; model: string; createdAt: string | Date };
-  let chats: ChatListItem[] = [];
-  if (user) {
-  try { chats = await listChatsAction(user.id); } catch {}
-  }
-  return (
-    import Link from 'next/link';
 import { listChatsAction } from '@/app/actions/saveChat';
 import { getCurrentUser } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
@@ -65,7 +52,5 @@ export default async function DashboardPage() {
         )}
       </section>
     </div>
-  );
-}
   );
 }

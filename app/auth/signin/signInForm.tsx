@@ -1,12 +1,12 @@
 'use client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { login } from '@/app/actions/auth';
+// import { login } from '@/app/actions/auth';
 import Link from 'next/link';
 
 export function SignInForm() {
   return (
-    <form action={login} className="space-y-6">
+  <form className="space-y-6">
       <div>
         <label
           htmlFor="email"
