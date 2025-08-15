@@ -1,1 +1,0 @@
-ALTER TABLE users ADD COLUMN IF NOT EXISTS auth0_sub varchar(255);

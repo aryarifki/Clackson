@@ -35,58 +35,93 @@ export default function HomePage() {
   const [targetCount, setTargetCount] = useState(5);
   const [currentIdx, setCurrentIdx] = useState(0);
   // sequential state handled by phase + awaitingUserNext; legacy flag removed
-  const [phase, setPhase] = useState<'input'|'edit'|'confirm'|'dialogue'|'generating'|'done'>('input');
-  const [awaitingUserNext, setAwaitingUserNext] = useState(false);
-  const [wantDialogue, setWantDialogue] = useState<'unknown'|'yes'|'no'>('unknown');
-  const [dialogueInstruction, setDialogueInstruction] = useState('');
-  const [globalDuration, setGlobalDuration] = useState('8');
+  const [phase, setPhase] = useState<'input' | 'storyboard' | 'generating' | 'done'>('input');
+  const [storyboard, setStoryboard] = useState('');
+  const [scenes, setScenes] = useState<string[]>([]);
+  const [isGeneratingStoryboard, setIsGeneratingStoryboard] = useState(false);
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
 
-  function handlePrepare() {
-    setError(null); setBaseParams(null); setOutputs([]); setPhase('input');
-    startTransition(async () => {
-      const res = await prepareComplexBaseParamsAction(provider, coreIdea, apiKey || undefined);
-      if (!res.ok) {
-        const m = res.meta as { attempts?: number; cause?: string; status?: number; bodySnippet?: string; salvageMethod?: string } | undefined;
-        setError(res.error);
-        addErrorLog({ phase: 'prepare', provider, coreIdea, code: res.error, attempts: m?.attempts, cause: m?.cause, status: m?.status, bodySnippet: m?.bodySnippet, salvageMethod: m?.salvageMethod, raw: res.raw });
-        return;
-      }
-      setBaseParams(res.data); setPhase('edit');
-  // meta no longer used (fallback removed)
-  // no fallback: if schema/generation failed user already sees error
-    });
+  async function generateStoryboard() {
+    setIsGeneratingStoryboard(true);
+    setError(null);
+    setStoryboard('');
+    const mockStoryboard = `
+### Scene 1 (0-8s)
+**Visuals:** A young programmer, ANNA (20s), is sitting in a dimly lit room, her face illuminated by the glow of her monitor. Code scrolls rapidly down the screen.
+**Dialogue:** (V.O.) "They told me it was impossible. That the deadline was a fantasy."
+
+### Scene 2 (8-16s)
+**Visuals:** Close-up on Anna's eyes, showing intense focus. Her fingers fly across the keyboard.
+**Narration:** "But in the world of code, fantasy is just a challenge waiting to be accepted."
+
+### Scene 3 (16-24s)
+**Visuals:** A montage of coffee cups, energy drink cans, and crumpled notes surrounding her workspace. The clock on the wall shows 3:00 AM.
+**Dialogue:** (Anna, muttering to herself) "Come on, just a little more..."
+
+### Scene 4 (24-32s)
+**Visuals:** The code on her screen compiles successfully. A green checkmark appears. Anna leans back in her chair, a small smile on her face.
+**Narration:** "Every line of code, a step forward. Every bug squashed, a victory."
+
+### Scene 5 (32-40s)
+**Visuals:** Anna is presenting her project in a bright, modern office. Her colleagues look impressed.
+**Dialogue:** (Colleague) "This is incredible, Anna. How did you manage it?"
+
+### Scene 6 (40-48s)
+**Visuals:** Anna looks at her screen, where her application is running smoothly.
+**Narration:** "It wasn't about managing time. It was about bending it."
+
+### Scene 7 (48-56s)
+**Visuals:** A stylized animation showing the application's UI, with data flowing and charts animating beautifully.
+**Dialogue:** (Anna) "I just focused on one piece at a time."
+
+### Scene 8 (56-64s)
+**Visuals:** Back in her room, Anna is sketching new ideas on a whiteboard. The sun is rising outside her window.
+**Narration:** "The end of one project is just the beginning of the next."
+
+### Scene 9 (64-72s)
+**Visuals:** A final shot of Anna, looking out the window at the sunrise, a look of determination and tranquility on her face.
+**Dialogue:** (V.O.) "Because for us, the future is always under construction."
+
+### Scene 10 (72-80s)
+**Visuals:** The company logo appears on screen, with the tagline "Building Tomorrow's AI."
+**Narration:** "And we are the architects."
+    `;
+    setStoryboard(mockStoryboard);
+    setPhase('storyboard');
+    setIsGeneratingStoryboard(false);
   }
 
-  function proceedToConfirm() { setPhase('confirm'); }
-  function handleDialogueChoice(choice: 'yes'|'no') {
-    setWantDialogue(choice);
-    if (choice === 'yes') { setPhase('dialogue'); } else { startGeneration(); }
+  function startSequentialGeneration() {
+    const parsedScenes = storyboard.split('###').slice(1);
+    setScenes(parsedScenes);
+    setOutputs([]);
+    setCurrentIdx(0);
+    setPhase('generating');
   }
-  function startGeneration() {
-    // apply global duration override to base params if present
-    if (baseParams && globalDuration) {
-      const sanitized = sanitizeDuration(globalDuration);
-      baseParams.technical_parameters.duration_seconds = sanitized;
+
+  async function generateNextPrompt() {
+    if (currentIdx >= scenes.length) {
+      setPhase('done');
+      return;
     }
-    setOutputs([]); setCurrentIdx(0); setPhase('generating'); setAwaitingUserNext(true);
-  }
-  async function generateNext() {
-    const nextIndex = currentIdx + 1;
-  if (nextIndex > targetCount) { setPhase('done'); setAwaitingUserNext(false); return; }
-    setAwaitingUserNext(false);
-    const res = await generateSingleComplexPromptAction(provider, coreIdea, nextIndex, targetCount, apiKey || undefined, baseParams || undefined, dialogueInstruction || undefined);
-  if (!res.ok) {
-    const m = res.meta as { attempts?: number; cause?: string; status?: number; bodySnippet?: string; salvageMethod?: string } | undefined;
-    setError(res.error + ` at item ${nextIndex}`);
-    addErrorLog({ phase: 'generate', provider, coreIdea, code: res.error, attempts: m?.attempts, cause: m?.cause, status: m?.status, bodySnippet: m?.bodySnippet, salvageMethod: m?.salvageMethod, raw: res.raw });
-    setPhase('done');
-    return;
-  }
-    setOutputs(prev => [...prev, { ...(res.data as ComplexPromptItem), _index: nextIndex - 1 }]);
-  // meta no longer used (fallback removed)
-  // no fallback messaging
-    setCurrentIdx(nextIndex);
-  if (nextIndex < targetCount) { setAwaitingUserNext(true); } else { setPhase('done'); }
+
+    setIsGeneratingPrompt(true);
+    const scene = scenes[currentIdx];
+    // In a real implementation, we would call a server action here
+    // const res = await generatePromptFromSceneAction(scene);
+    // For now, create a mock prompt
+    const mockPrompt = {
+      _index: currentIdx,
+      prompt: scene.trim(),
+      // ... other fields from ComplexPromptItem
+    };
+    setOutputs(prev => [...prev, mockPrompt as any]);
+    setCurrentIdx(prev => prev + 1);
+    setIsGeneratingPrompt(false);
+
+    if (currentIdx + 1 >= scenes.length) {
+      setPhase('done');
+    }
   }
 
   function handleDialogueChange(i: number, v: string) { setEditedDialogues(prev => ({ ...prev, [i]: v })); }
@@ -156,82 +191,46 @@ export default function HomePage() {
             <Input placeholder="Override env / stored key" value={apiKey} onChange={e=>setApiKey(e.target.value)} />
           </div>
           {phase === 'input' && (
-            <Button onClick={handlePrepare} disabled={isGenerating} className="w-full h-11 font-semibold shadow-md">{isGenerating ? 'Preparing...' : 'Buat Parameter Dasar'}</Button>
+            <Button onClick={generateStoryboard} disabled={isGeneratingStoryboard} className="w-full h-11 font-semibold shadow-md">
+              {isGeneratingStoryboard ? 'Processing...' : 'Process'}
+            </Button>
           )}
-          {phase === 'edit' && (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center justify-between">Jumlah Output <span className="text-[11px] text-muted-foreground">1–10</span></label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={targetCount}
-                  onChange={e=> {
-                    const v = e.target.value;
-                    if (v === '') { setTargetCount(1); return; }
-                    const num = parseInt(v,10);
-                    if (!Number.isNaN(num)) setTargetCount(Math.min(10, Math.max(1, num)));
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center justify-between">Durasi (detik) <span className="text-[11px] text-muted-foreground">contoh: 8</span></label>
-                <Input type="number" min={1} max={30} value={globalDuration} onChange={e=> setGlobalDuration(e.target.value.replace(/[^0-9]/g,''))} />
-              </div>
-              <Button onClick={proceedToConfirm} className="w-full h-11 font-semibold">Lanjut Konfirmasi</Button>
-            </div>
-          )}
-          {phase === 'confirm' && (
+          {phase === 'storyboard' && (
             <div className="space-y-4">
-              <p className="text-xs text-muted-foreground">Siap generate {targetCount} output sequential. Kamu akan konfirmasi tiap output.</p>
-              <div className="space-y-2 text-xs">
-                <p className="text-muted-foreground">Apakah ingin menambahkan arahan dialog untuk subjek? (opsional)</p>
-                <div className="flex gap-2">
-                  <Button type="button" variant={wantDialogue==='yes'? 'default':'outline'} className="flex-1 h-9" onClick={()=>handleDialogueChoice('yes')}>Ya, tambah dialog</Button>
-                  <Button type="button" variant={wantDialogue==='no'? 'default':'outline'} className="flex-1 h-9" onClick={()=>handleDialogueChoice('no')}>Tidak</Button>
-                </div>
-              </div>
-              <Button onClick={()=>handleDialogueChoice('no')} className="w-full h-11 font-semibold">Lewati & Generate</Button>
-            </div>
-          )}
-          {phase === 'dialogue' && (
-            <div className="space-y-4">
-              <p className="text-xs text-muted-foreground">Tulis arahan dialog / tone percakapan (opsional). Kosongkan jika batal.</p>
-              <Textarea value={dialogueInstruction} onChange={e=>setDialogueInstruction(e.target.value)} className="min-h-[100px] text-xs" placeholder="Contoh: Pemuda itu berbicara perlahan tentang pentingnya kesabaran, gunakan bahasa yang natural & emosional." />
+              <p className="text-xs text-green-600">Storyboard generated successfully.</p>
               <div className="flex gap-2">
-                <Button onClick={startGeneration} className="flex-1 h-11 font-semibold">Mulai Generate</Button>
-                <Button variant="outline" onClick={()=>{ setDialogueInstruction(''); startGeneration(); }} className="flex-1 h-11">Lewati</Button>
+                <Button onClick={generateStoryboard} className="flex-1 h-11 font-semibold">Refresh</Button>
+                <Button onClick={startSequentialGeneration} className="flex-1 h-11">Proceed</Button>
               </div>
             </div>
           )}
           {phase === 'generating' && (
             <div className="space-y-4">
-              <p className="text-xs text-muted-foreground">Progress: {currentIdx}/{targetCount}</p>
-              {awaitingUserNext ? (
-                <Button onClick={generateNext} className="w-full h-11 font-semibold">Generate Output {currentIdx + 1}</Button>
-              ) : (
-                <Button disabled className="w-full h-11">Menunggu...</Button>
-              )}
+              <p className="text-xs text-muted-foreground">Progress: {currentIdx}/{scenes.length}</p>
+              <Button onClick={generateNextPrompt} disabled={isGeneratingPrompt} className="w-full h-11 font-semibold">
+                {isGeneratingPrompt ? 'Generating...' : `Generate Prompt ${currentIdx + 1}`}
+              </Button>
             </div>
           )}
           {phase === 'done' && (
             <div className="space-y-4">
-              <p className="text-xs text-green-600">Selesai: {outputs.length} output.</p>
-              <Button onClick={()=>{ setPhase('input'); setOutputs([]); setBaseParams(null); setDialogueInstruction(''); setWantDialogue('unknown'); }} variant="outline" className="w-full h-11">Reset</Button>
+              <p className="text-xs text-green-600">Finished: {outputs.length} prompts generated.</p>
+              <Button onClick={() => { setPhase('input'); setOutputs([]); setStoryboard(''); }} variant="outline" className="w-full h-11">Reset</Button>
             </div>
           )}
           {error && <p className="text-sm text-red-500">{error}</p>}
         </div>
         <div className="md:col-span-2 space-y-4">
-          {baseParams && phase !== 'input' && (
-            <div className="rounded-lg border bg-white/70 backdrop-blur p-4">
-              <h2 className="text-sm font-semibold mb-2">Parameter Dasar (Edit sebelum generate variasi)</h2>
-              <EditableParamFields prompt={{ ...baseParams, _index: -1 }} onChange={(p)=> setBaseParams(p)} />
+          {phase === 'storyboard' && (
+            <div className="rounded-lg border bg-background/50 backdrop-blur p-4">
+              <h2 className="text-sm font-semibold mb-2">Storyboard (Review/Edit)</h2>
+              <Textarea value={storyboard} onChange={e => setStoryboard(e.target.value)} className="min-h-[300px] text-sm" />
             </div>
           )}
-          {outputs.length === 0 && phase === 'input' && (
-            <div className="rounded-lg border bg-white/60 backdrop-blur p-6 text-sm text-muted-foreground">Belum ada output. Buat parameter dasar dulu.</div>
+          {outputs.length === 0 && phase !== 'storyboard' && (
+            <div className="rounded-lg border bg-background/50 backdrop-blur p-6 text-sm text-muted-foreground">
+              Enter a core idea and click "Process" to generate a storyboard.
+            </div>
           )}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {outputs.map((o, i) => (
@@ -262,60 +261,17 @@ export default function HomePage() {
   );
 }
 
-function EditableParamFields({ prompt, onChange }: { prompt: ComplexPromptItem & { _index: number }; onChange: (p: ComplexPromptItem)=>void }) {
-  const [local, setLocal] = useState<ComplexPromptItem>(prompt);
-  function updateNested(path: string[], value: string) {
-    const clone: Record<string, unknown> = JSON.parse(JSON.stringify(local));
-    let cursor: unknown = clone;
-    for (let i=0;i<path.length-1;i++) {
-      if (typeof cursor === 'object' && cursor && path[i] in (cursor as Record<string, unknown>)) {
-        cursor = (cursor as Record<string, unknown>)[path[i]];
-      }
-    }
-    if (typeof cursor === 'object' && cursor) {
-      (cursor as Record<string, unknown>)[path[path.length-1]] = value;
-    }
-    const casted = clone as unknown as ComplexPromptItem;
-    setLocal(casted); onChange(casted);
-  }
+function PromptCard({ prompt, onCopy }: { prompt: ComplexPromptItem & { _index: number }; onCopy: () => void }) {
   return (
-    <div className="space-y-2 border rounded-md p-2 bg-white/60">
-      <ParamField label="Title" value={local.video_concept.title} onChange={v=>updateNested(['video_concept','title'], v)} />
-      <ParamField label="Logline" value={local.video_concept.logline} onChange={v=>updateNested(['video_concept','logline'], v)} />
-      <ParamField label="Subject" value={local.video_concept.subject} onChange={v=>updateNested(['video_concept','subject'], v)} />
-      <ParamField label="Setting" value={local.video_concept.setting} onChange={v=>updateNested(['video_concept','setting'], v)} />
-      <ParamField label="Mood" value={local.visuals.mood_and_atmosphere.mood} onChange={v=>updateNested(['visuals','mood_and_atmosphere','mood'], v)} />
-      <ParamField label="Lighting" value={local.visuals.mood_and_atmosphere.lighting} onChange={v=>updateNested(['visuals','mood_and_atmosphere','lighting'], v)} />
-      <ParamField label="Color Palette" value={local.visuals.mood_and_atmosphere.color_palette} onChange={v=>updateNested(['visuals','mood_and_atmosphere','color_palette'], v)} />
-      <ParamField label="Shot Type" value={local.cinematography.composition.shot_type} onChange={v=>updateNested(['cinematography','composition','shot_type'], v)} />
-      <ParamField label="Camera Angle" value={local.cinematography.composition.camera_angle} onChange={v=>updateNested(['cinematography','composition','camera_angle'], v)} />
-      <ParamField label="Focus" value={local.cinematography.composition.focus} onChange={v=>updateNested(['cinematography','composition','focus'], v)} />
-      <ParamField label="Subject Action" value={local.cinematography.motion.subject_action} onChange={v=>updateNested(['cinematography','motion','subject_action'], v)} />
-      <ParamField label="Camera Movement" value={local.cinematography.motion.camera_movement} onChange={v=>updateNested(['cinematography','motion','camera_movement'], v)} />
-      <ParamField label="Dynamic Effects" value={local.cinematography.motion.dynamic_effects} onChange={v=>updateNested(['cinematography','motion','dynamic_effects'], v)} />
-      <ParamField label="SFX" value={local.audio.sound_effects} onChange={v=>updateNested(['audio','sound_effects'], v)} />
-  <ParamField label="Background Music" value={(local as unknown as { audio: { background_music?: string } }).audio.background_music || ''} onChange={v=>updateNested(['audio','background_music'], v)} />
-      <div className="grid grid-cols-2 gap-2">
-        <ParamField label="Duration (s)" value={local.technical_parameters.duration_seconds} onChange={v=>updateNested(['technical_parameters','duration_seconds'], sanitizeDuration(v))} />
-        <ParamField label="Aspect Ratio" value={local.technical_parameters.aspect_ratio} onChange={v=>updateNested(['technical_parameters','aspect_ratio'], v)} />
-        <ParamField label="Quality" value={local.technical_parameters.quality} onChange={v=>updateNested(['technical_parameters','quality'], v)} />
-        <ParamField label="Frame Rate" value={local.technical_parameters.frame_rate} onChange={v=>updateNested(['technical_parameters','frame_rate'], v)} />
+    <div className="group relative rounded-lg border bg-background/70 backdrop-blur p-3 flex flex-col">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold tracking-wide text-pink-600">Prompt {prompt._index + 1}</h3>
+        <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={onCopy}>Copy</Button>
       </div>
-      <ParamField label="Negative Prompt" value={local.negative_prompt} onChange={v=>updateNested(['negative_prompt'], v)} />
+      <pre className="mt-2 text-[10px] leading-snug overflow-auto rounded bg-neutral-900 text-neutral-100 p-2 flex-1 max-h-64 whitespace-pre-wrap">
+        {JSON.stringify(prompt, null, 2)}
+      </pre>
     </div>
-  );
-}
-
-function ParamField({ label, value, onChange, textarea }: { label: string; value: string; onChange: (v:string)=>void; textarea?: boolean }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-[10px] font-medium text-muted-foreground">{label}</span>
-      {textarea ? (
-        <textarea className="border rounded px-2 py-1 text-[11px] resize-y min-h-[48px]" value={value} onChange={e=>onChange(e.target.value)} />
-      ) : (
-        <input className="border rounded px-2 py-1 text-[11px]" value={value} onChange={e=>onChange(e.target.value)} />
-      )}
-    </label>
   );
 }
 
